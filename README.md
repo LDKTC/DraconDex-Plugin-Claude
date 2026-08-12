@@ -11,6 +11,12 @@ the room.
 > Requires **DraconDex 4.3.0+** for the docked panel. On 4.2.x it still installs
 > and works as a plain window (Settings → Plugin → Launch) — there is just no
 > button in the main window, because the panel API doesn't exist there yet.
+> **DraconDex 4.8.0+** additionally auto-installs
+> [AI Native](https://github.com/LDKTC/DraconDex-Plugin-Native) the first time
+> this plugin is installed (see [App context](#app-context-ai-native) below).
+> On older versions this plugin still installs and works exactly the same —
+> the app just doesn't know to look at the manifest's `dependencies` field
+> yet, so nothing else gets pulled in automatically.
 
 ## Connecting
 
@@ -53,6 +59,26 @@ useful for you.
 - Surfaces refusals, rate limits, and API errors as themselves, with Retry —
   rather than swallowing them
 
+## App context (AI Native)
+
+This plugin declares
+[DraconDex-Plugin-Native](https://github.com/LDKTC/DraconDex-Plugin-Native)
+("AI Native") as a manifest `dependencies` entry, so installing this plugin
+auto-installs that one too (DraconDex 4.8.0+). AI Native publishes
+`catalog.json` — a small public file describing DraconDex's features and what
+a plugin can/can't do.
+
+A plugin can't read another plugin's table or files even once both are
+installed side by side, so this plugin doesn't reach into AI Native directly —
+instead, on boot it fetches `catalog.json` straight from that repo
+(`https://raw.githubusercontent.com`, declared in `permissions.net`) and
+folds a short summary into the system prompt sent with every message, ahead
+of whatever you wrote in Settings. That's the entire mechanism: your own
+system prompt is never edited or replaced, just prefixed for the outgoing
+request. No internet access to that host, or an older DraconDex with no
+`pluginApi.net`? Chat still works fine — just without the app-context
+preamble.
+
 ## Where your data goes
 
 - **Conversations** live in this plugin's own SQLite tables inside your vault
@@ -78,15 +104,17 @@ useful for you.
     { "id": "chat", "title": "Claude", "icon": "💬", "entry": "panel.html" }
   ],
   "permissions": {
-    "net": ["https://api.anthropic.com"],
+    "net": ["https://api.anthropic.com", "https://raw.githubusercontent.com"],
     "context": ["module"]
   },
+  "dependencies": ["https://github.com/LDKTC/DraconDex-Plugin-Native"],
   "tables": [ "…" ]
 }
 ```
 
-`panels` and `permissions` are the DraconDex 4.3.0 additions; everything else is
-the plugin format from 4.2.0. Full rules are in
+`panels` and `permissions` are the DraconDex 4.3.0 additions; `dependencies`
+is 4.8.0 (see [App context](#app-context-ai-native) above); everything else
+is the plugin format from 4.2.0. Full rules are in
 [App-DraconDex's `docs/PLUGINS.md`](https://github.com/LDKTC/App-DraconDex/blob/main/docs/PLUGINS.md).
 
 `permissions.context: ["module"]` lets the panel receive the open module's id,
@@ -102,6 +130,7 @@ Nothing about the module's *content* is shared.
 | `panel.html` + `panel.js` | Docked-panel entry; asks the host for module context. |
 | `src/store.js` | The three tables, via `window.pluginApi.table.*`. |
 | `src/provider.js` | Messages API client + both auth modes. |
+| `src/catalog.js` | Fetches/caches AI Native's `catalog.json`; composes the app-context preamble onto the system prompt. |
 | `src/chat.js` | Session and turn state; no DOM. |
 | `src/ui.js` | Rendering. Builds nodes, never HTML strings. |
 | `style.css` | Dark theme matching the app; works at 290px and at 900px. |
