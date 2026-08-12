@@ -182,6 +182,102 @@ function input(id, value, { type = 'text', placeholder = '' } = {}) {
   return node;
 }
 
+// Reports the outcome of a settings action in the notice slot without a full
+// re-boot — used by the buttons that talk to the network.
+async function withNotice(fn) {
+  try {
+    await fn();
+  } catch (e) {
+    Chat.notice = String(e?.message || e);
+  }
+  Chat.settings = await Provider.readSettings();
+  render();
+}
+
+function buildApiSection(s) {
+  const wrap = el('div');
+  const key = input('cfg-api-key', s.apiKey, { type: 'password', placeholder: 'sk-ant-…' });
+  wrap.appendChild(field('Anthropic API key', key,
+    'Stored in this plugin\'s own table, in plain text — same as the app stores its other credentials.'));
+  const save = el('button', 'btn btn-p', 'Save key');
+  save.onclick = () => ChatActions.saveSettings({ api_key: key.value.trim() });
+  wrap.appendChild(save);
+  return wrap;
+}
+
+function buildOauthSection(s) {
+  const wrap = el('div');
+  const signedIn = !!s.oauth.accessToken;
+
+  wrap.appendChild(el('div', 'notice',
+    'Anthropic publishes no API for driving a Claude Pro/Max subscription from a third-party app, and this '
+    + 'plugin does not invent one. "Sign in" below is a standard OAuth 2.0 + PKCE client that only does '
+    + 'anything useful if you already have an OAuth client you are entitled to use. Most people want '
+    + '"Local CLI" instead.'));
+
+  // --- sign in ---
+  wrap.appendChild(el('div', 'pane-label', 'Sign in'));
+  wrap.appendChild(el('div', 'hint',
+    'Needs an OAuth client\'s details — client ID, authorize URL, token URL. If you do not have one of '
+    + 'those, this will not work; use Local CLI below or API key mode instead.'));
+
+  const clientId = input('cfg-client-id', s.oauth.clientId);
+  const authorizeUrl = input('cfg-authorize-url', s.oauth.authorizeUrl, { placeholder: 'https://…/oauth/authorize' });
+  const tokenUrl = input('cfg-token-url', s.oauth.tokenUrl, { placeholder: 'https://…/oauth/token' });
+  const scope = input('cfg-scope', s.oauth.scope, { placeholder: 'optional' });
+  wrap.appendChild(field('Client ID', clientId));
+  wrap.appendChild(field('Authorize URL', authorizeUrl));
+  wrap.appendChild(field('Token URL', tokenUrl));
+  wrap.appendChild(field('Scope', scope));
+
+  const row = el('div', 'row-actions');
+  const save = el('button', 'btn btn-s', 'Save');
+  save.onclick = () => ChatActions.saveSettings({
+    oauth_client_id: clientId.value.trim(),
+    oauth_authorize_url: authorizeUrl.value.trim(),
+    oauth_token_url: tokenUrl.value.trim(),
+    oauth_scope: scope.value.trim(),
+  });
+  row.appendChild(save);
+
+  const auth = el('button', 'btn btn-p', signedIn ? 'Sign out' : 'Sign in');
+  auth.onclick = () => withNotice(async () => {
+    if (signedIn) { await Provider.oauthSignOut(); Chat.notice = 'Signed out.'; }
+    else { await Provider.oauthSignIn(); Chat.notice = 'Signed in.'; }
+  });
+  row.appendChild(auth);
+  wrap.appendChild(row);
+  wrap.appendChild(el('div', 'hint', signedIn
+    ? `Signed in.${s.oauth.expiresAt ? ` Token expires ${new Date(s.oauth.expiresAt).toLocaleString()}.` : ''}`
+    : 'Not signed in.'));
+
+  // --- Local CLI ---
+  wrap.appendChild(el('div', 'pane-label', 'Local CLI'));
+  wrap.appendChild(el('div', 'hint',
+    'Run `claude setup-token` with the Claude Code CLI on this machine — it prints a token tied to your '
+    + 'Claude subscription, no OAuth client of your own required. (Already signed in there? That session\'s '
+    + 'token works the same way.) Paste it below; it is stored and sent exactly like a token obtained by '
+    + 'signing in above. This plugin never runs the CLI itself — a plugin page cannot — it only accepts '
+    + 'whatever token the CLI already produced.'));
+
+  const access = input('cfg-access-token', s.oauth.accessToken, { type: 'password', placeholder: 'access token' });
+  const refresh = input('cfg-refresh-token', s.oauth.refreshToken, { type: 'password', placeholder: 'refresh token (optional)' });
+  wrap.appendChild(field('Access token', access));
+  wrap.appendChild(field('Refresh token', refresh,
+    'Without one, the token cannot be renewed when it expires — rerun `claude setup-token` for a new one.'));
+
+  const saveToken = el('button', 'btn btn-p', 'Save token');
+  saveToken.onclick = () => ChatActions.saveSettings({
+    oauth_access_token: access.value.trim(),
+    oauth_refresh_token: refresh.value.trim(),
+    // A pasted token carries no expiry, so clear any stale one rather than
+    // letting it trigger a refresh the moment the next request goes out.
+    oauth_expires_at: '',
+  });
+  wrap.appendChild(saveToken);
+  return wrap;
+}
+
 function buildSettings() {
   const s = Chat.settings;
   const wrap = el('div', 'pane');
@@ -198,57 +294,7 @@ function buildSettings() {
   }
   wrap.appendChild(field('Mode', modeRow));
 
-  if (s.mode === 'api') {
-    const key = input('cfg-api-key', s.apiKey, { type: 'password', placeholder: 'sk-ant-…' });
-    wrap.appendChild(field('Anthropic API key', key,
-      'Stored in this plugin\'s own table, in plain text — same as the app stores its other credentials.'));
-    const save = el('button', 'btn btn-p', 'Save key');
-    save.onclick = () => ChatActions.saveSettings({ api_key: key.value.trim() });
-    wrap.appendChild(save);
-  } else {
-    wrap.appendChild(el('div', 'notice',
-      'Anthropic publishes no API for driving a Claude Pro/Max subscription from a third-party app. '
-      + 'This is a standard OAuth 2.0 + PKCE client: it works with an OAuth client you are entitled to use, '
-      + 'whose details you supply below. If you do not have one, use API key mode.'));
-
-    const clientId = input('cfg-client-id', s.oauth.clientId);
-    const authorizeUrl = input('cfg-authorize-url', s.oauth.authorizeUrl, { placeholder: 'https://…/oauth/authorize' });
-    const tokenUrl = input('cfg-token-url', s.oauth.tokenUrl, { placeholder: 'https://…/oauth/token' });
-    const scope = input('cfg-scope', s.oauth.scope, { placeholder: 'optional' });
-    wrap.appendChild(field('Client ID', clientId));
-    wrap.appendChild(field('Authorize URL', authorizeUrl));
-    wrap.appendChild(field('Token URL', tokenUrl));
-    wrap.appendChild(field('Scope', scope));
-
-    const row = el('div', 'row-actions');
-    const save = el('button', 'btn btn-s', 'Save');
-    save.onclick = () => ChatActions.saveSettings({
-      oauth_client_id: clientId.value.trim(),
-      oauth_authorize_url: authorizeUrl.value.trim(),
-      oauth_token_url: tokenUrl.value.trim(),
-      oauth_scope: scope.value.trim(),
-    });
-    row.appendChild(save);
-
-    const signedIn = !!s.oauth.accessToken;
-    const auth = el('button', 'btn btn-p', signedIn ? 'Sign out' : 'Sign in');
-    auth.onclick = async () => {
-      try {
-        if (signedIn) await Provider.oauthSignOut();
-        else await Provider.oauthSignIn();
-        Chat.settings = await Provider.readSettings();
-        Chat.notice = signedIn ? 'Signed out.' : 'Signed in.';
-      } catch (e) {
-        Chat.notice = String(e?.message || e);
-      }
-      render();
-    };
-    row.appendChild(auth);
-    wrap.appendChild(row);
-    wrap.appendChild(el('div', 'hint', signedIn
-      ? `Signed in.${s.oauth.expiresAt ? ` Token expires ${new Date(s.oauth.expiresAt).toLocaleString()}.` : ''}`
-      : 'Not signed in.'));
-  }
+  wrap.appendChild(s.mode === 'api' ? buildApiSection(s) : buildOauthSection(s));
 
   wrap.appendChild(el('div', 'pane-label', 'Model'));
 

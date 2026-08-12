@@ -14,6 +14,14 @@
 // one. What it implements is standard OAuth 2.0 + PKCE against endpoints and a
 // client_id the user supplies — useful when you have an OAuth client you are
 // entitled to use, and inert otherwise. The API-key mode works out of the box.
+//
+// A pasted token gets into oauth mode without any of that: run `claude
+// setup-token` (or reuse an existing `claude login` session) with the Claude
+// Code CLI on this machine, and paste the token it prints into Settings'
+// Local CLI section. It is the exact same accessToken field the sign-in flow
+// fills in, sent the exact same way — this file never shells out to the CLI
+// itself (a plugin page cannot; see docs/PLUGINS.md in App-DraconDex), it only
+// accepts whatever token that CLI already produced.
 
 const ANTHROPIC_BASE = 'https://api.anthropic.com';
 const API_VERSION = '2023-06-01';
@@ -103,9 +111,11 @@ async function readSettings() {
 
 function connectionState(s) {
   if (s.mode === 'api') return s.apiKey ? { ok: true } : { ok: false, reason: 'no_api_key' };
-  if (!s.oauth.clientId || !s.oauth.authorizeUrl || !s.oauth.tokenUrl) return { ok: false, reason: 'oauth_unconfigured' };
-  if (!s.oauth.accessToken) return { ok: false, reason: 'oauth_signed_out' };
-  return { ok: true };
+  // Either half of OAuth mode is enough to have a usable token: the PKCE
+  // sign-in below, or a token pasted in from the local CLI (`claude
+  // setup-token` / an existing `claude login` session) — see Local CLI in
+  // Settings. clientId/authorizeUrl/tokenUrl are only needed for sign-in.
+  return s.oauth.accessToken ? { ok: true } : { ok: false, reason: 'oauth_signed_out' };
 }
 
 // --- OAuth 2.0 + PKCE ------------------------------------------------------
@@ -340,8 +350,7 @@ function describeHttp(status, body) {
 
 function describeGate(reason) {
   if (reason === 'no_api_key') return 'No API key set — open Settings and paste one.';
-  if (reason === 'oauth_unconfigured') return 'OAuth is not configured — fill in client ID, authorize URL and token URL in Settings.';
-  if (reason === 'oauth_signed_out') return 'Signed out — sign in from Settings.';
+  if (reason === 'oauth_signed_out') return 'Signed out — sign in from Settings, or paste a token from the local CLI.';
   return 'Not connected.';
 }
 

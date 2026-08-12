@@ -26,3 +26,8 @@ jobs:
             echo "checking $f"
             node --check "$f"
           done
+      # Drives src/provider.js against canned SSE — the Messages-API event
+      # mapping and the OAuth connection gate are the part a manifest check
+      # can't see.
+      - name: Run tests
+        run: node --test test/*.test.mjs

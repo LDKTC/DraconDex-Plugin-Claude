@@ -29,9 +29,28 @@ setup, and it works today.
 
 ### Subscription (OAuth)
 
+Two ways to end up with a token here — both stored and sent identically
+(`Authorization: Bearer …` + `anthropic-beta: oauth-2025-04-20`).
+
+#### Local CLI
+
+Run `claude setup-token` with the Claude Code CLI on this machine — it
+authenticates against your existing Claude subscription and prints a token, no
+OAuth client of your own required. Already signed in there (`claude login`)?
+That session's token works the same way. Paste it into Settings → Subscription
+→ Local CLI.
+
+This plugin never runs the CLI itself — a plugin page has no process access to
+do that, by design (see
+[App-DraconDex's `docs/PLUGINS.md`](https://github.com/LDKTC/App-DraconDex/blob/main/docs/PLUGINS.md)
+§2.4). It only accepts whatever token the CLI already produced, the same way
+it would accept one from Sign-in below.
+
+#### Sign in
+
 **Read this before choosing it.** Anthropic publishes no API for driving a
 Claude Pro/Max subscription from a third-party app, and this plugin does not
-invent one. What this mode implements is a standard **OAuth 2.0 + PKCE** client
+invent one. What this implements is a standard **OAuth 2.0 + PKCE** client
 against endpoints *you* supply:
 
 | Field | What it is |
@@ -46,8 +65,16 @@ Sign-in opens your system browser and captures the redirect through DraconDex
 plugin, so a client secret never leaves it. Access tokens are refreshed
 automatically before they expire.
 
-If you don't have such a client, use API key mode — this one will do nothing
-useful for you.
+That token exchange is itself a `pluginApi.net` call, so it is held to the same
+manifest allowlist as everything else this plugin sends —
+`https://api.anthropic.com` or `https://raw.githubusercontent.com`, nothing
+else (see [The manifest](#the-manifest)). In practice, Sign-in only works if
+your OAuth client's token endpoint happens to live on one of those two hosts;
+most don't. Local CLI above sidesteps this entirely — it makes no
+token-endpoint request of its own, since the CLI already completed that
+exchange for you.
+
+If neither fits, use API key mode.
 
 ## What it can do
 
